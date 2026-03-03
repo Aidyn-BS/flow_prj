@@ -1,26 +1,61 @@
+import sys
+import logging
 import threading
+import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
+
+# Логирование — всё пишется в stdout чтобы Amvera видел
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stdout,
 )
-from config import TELEGRAM_BOT_TOKEN
-from handlers import (
-    start_handler,
-    catalog_handler,
-    message_handler,
-    myorders_handler,
-    stats_handler,
-    admin_handler,
-    inventory_handler,
-    button_handler,
-    photo_handler,
-    document_handler,
-    send_reminders,
-)
+logger = logging.getLogger(__name__)
+
+# Сразу пишем что скрипт запустился
+print("=== bot.py started ===", flush=True)
+
+try:
+    from telegram.ext import (
+        ApplicationBuilder,
+        CommandHandler,
+        MessageHandler,
+        CallbackQueryHandler,
+        filters,
+    )
+    print("=== telegram imported OK ===", flush=True)
+except Exception as e:
+    print(f"=== IMPORT ERROR telegram: {e} ===", flush=True)
+    traceback.print_exc()
+    sys.exit(1)
+
+try:
+    from config import TELEGRAM_BOT_TOKEN
+    print(f"=== config loaded, token exists: {bool(TELEGRAM_BOT_TOKEN)} ===", flush=True)
+except Exception as e:
+    print(f"=== IMPORT ERROR config: {e} ===", flush=True)
+    traceback.print_exc()
+    sys.exit(1)
+
+try:
+    from handlers import (
+        start_handler,
+        catalog_handler,
+        message_handler,
+        myorders_handler,
+        stats_handler,
+        admin_handler,
+        inventory_handler,
+        button_handler,
+        photo_handler,
+        document_handler,
+        send_reminders,
+    )
+    print("=== handlers imported OK ===", flush=True)
+except Exception as e:
+    print(f"=== IMPORT ERROR handlers: {e} ===", flush=True)
+    traceback.print_exc()
+    sys.exit(1)
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -30,19 +65,31 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def log_message(self, format, *args):
-        pass  # тихий лог
+        pass
 
 
 def start_health_server():
-    server = HTTPServer(("0.0.0.0", 80), HealthHandler)
-    server.serve_forever()
+    try:
+        server = HTTPServer(("0.0.0.0", 80), HealthHandler)
+        print("=== Health server started on port 80 ===", flush=True)
+        server.serve_forever()
+    except Exception as e:
+        print(f"=== Health server error: {e} ===", flush=True)
 
 
 def main():
+    print("=== main() called ===", flush=True)
+
     # Фоновый HTTP-сервер для healthcheck Amvera
     threading.Thread(target=start_health_server, daemon=True).start()
 
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    try:
+        app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        print("=== Telegram app built OK ===", flush=True)
+    except Exception as e:
+        print(f"=== ERROR building app: {e} ===", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
 
     # Команды
     app.add_handler(CommandHandler("start", start_handler))
@@ -68,9 +115,14 @@ def main():
     job_queue = app.job_queue
     job_queue.run_repeating(send_reminders, interval=3600, first=60)
 
-    print("🌸 Rosa бот запущен!")
+    print("🌸 Rosa бот запущен!", flush=True)
     app.run_polling()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"=== FATAL ERROR: {e} ===", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
