@@ -1,3 +1,5 @@
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -21,7 +23,25 @@ from handlers import (
 )
 
 
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        pass  # тихий лог
+
+
+def start_health_server():
+    server = HTTPServer(("0.0.0.0", 80), HealthHandler)
+    server.serve_forever()
+
+
 def main():
+    # Фоновый HTTP-сервер для healthcheck Amvera
+    threading.Thread(target=start_health_server, daemon=True).start()
+
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Команды
