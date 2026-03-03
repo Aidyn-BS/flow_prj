@@ -456,9 +456,12 @@ async def _process_ai_message(chat_id: int, user_text: str, context: ContextType
     # Проверяем триггеры заказа
     cleaned = await process_order(ai_reply, chat_id)
     if cleaned:
+        print(f"[ORDER] Заказ обработан для chat_id={chat_id}, is_admin={_is_admin(chat_id)}", flush=True)
         ai_reply = cleaned
         if ADMIN_CHAT_ID and not _is_admin(chat_id):
             await _notify_admin(chat_id, ai_reply, context)
+        else:
+            print(f"[ORDER] Уведомление пропущено: ADMIN_CHAT_ID={ADMIN_CHAT_ID}, is_admin={_is_admin(chat_id)}", flush=True)
 
     # Проверяем триггеры инвентаря (только для админа)
     if _is_admin(chat_id):
@@ -576,12 +579,15 @@ def _detect_inline_buttons(ai_reply: str) -> InlineKeyboardMarkup | None:
 async def _notify_admin(chat_id: int, order_text: str, context: ContextTypes.DEFAULT_TYPE):
     """Отправляет уведомление владельцу о новом заказе."""
     if not ADMIN_CHAT_ID:
+        print(f"[NOTIFY] ADMIN_CHAT_ID не задан, уведомление не отправлено", flush=True)
         return
-    msg = f"🔔 *Новый заказ!*\n\nОт клиента (chat_id: {chat_id}):\n\n{order_text}"
+    msg = f"🔔 Новый заказ!\n\nОт клиента (chat_id: {chat_id}):\n\n{order_text}"
+    print(f"[NOTIFY] Отправляю уведомление админу {ADMIN_CHAT_ID}...", flush=True)
     try:
-        await context.bot.send_message(ADMIN_CHAT_ID, msg, parse_mode="Markdown")
-    except Exception:
-        pass
+        await context.bot.send_message(ADMIN_CHAT_ID, msg)
+        print(f"[NOTIFY] Уведомление отправлено успешно", flush=True)
+    except Exception as e:
+        print(f"[NOTIFY] ОШИБКА отправки: {e}", flush=True)
 
 
 # --- Напоминания ---
