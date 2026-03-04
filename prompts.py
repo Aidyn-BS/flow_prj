@@ -19,18 +19,41 @@ def _inventory_text(inventory: dict[str, int]) -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(chat_id: int, inventory: dict[str, int] | None = None) -> str:
+def build_system_prompt(chat_id: int, inventory: dict[str, int] | None = None, orders: list | None = None) -> str:
     if inventory is None:
         inventory = {}
 
     if ADMIN_CHAT_ID and chat_id == ADMIN_CHAT_ID:
-        return _build_admin_prompt(inventory)
+        return _build_admin_prompt(inventory, orders)
     return _build_client_prompt(inventory)
 
 
-def _build_admin_prompt(inventory: dict[str, int]) -> str:
+def _orders_text(orders: list | None) -> str:
+    if not orders:
+        return "Заказов пока нет."
+    lines = []
+    for o in orders[:10]:
+        status = "✅" if o.get("status") == "confirmed" else "❌"
+        flowers = o.get("flowers", "—")
+        qty = o.get("quantity", 0)
+        total = o.get("total_price", 0)
+        name = o.get("customer_name", "")
+        phone = o.get("customer_phone", "")
+        date = o.get("pickup_date", "")
+        time = o.get("pickup_time", "")
+        delivery = "самовывоз" if o.get("delivery_type") == "pickup" else "доставка"
+        address = o.get("delivery_address", "")
+        line = f"{status} {flowers} x {qty} шт — {total} тг | {name} {phone} | {date} {time} | {delivery}"
+        if address:
+            line += f": {address}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _build_admin_prompt(inventory: dict[str, int], orders: list | None = None) -> str:
     flower_list = _flower_list()
     inv_text = _inventory_text(inventory)
+    ord_text = _orders_text(orders)
 
     return f"""Ты — ассистент владельца цветочного магазина «{SHOP_NAME}».
 Телефон: {SHOP_PHONE}. Адрес: {SHOP_ADDRESS}. Часы работы: {SHOP_HOURS}.
@@ -40,6 +63,9 @@ def _build_admin_prompt(inventory: dict[str, int]) -> str:
 
 ТЕКУЩИЕ ОСТАТКИ НА СКЛАДЕ:
 {inv_text}
+
+ПОСЛЕДНИЕ ЗАКАЗЫ:
+{ord_text}
 
 ПРАВИЛА:
 1. Обращайся к владельцу на «вы» или «ты» — как он предпочитает.
@@ -55,8 +81,9 @@ def _build_admin_prompt(inventory: dict[str, int]) -> str:
 4. Ключи цветов: розы_стандартные, розы_метровые, тюльпаны, пионы, ромашки, хризантемы, гортензии.
 5. Когда владелец спрашивает про остатки — покажи текущие остатки из данных выше.
 6. Когда владелец отправляет фото — система сама спросит какой это цветок. Тебе не нужно это обрабатывать.
-7. Отвечай кратко и по делу. Ты — рабочий помощник, не клиентский бот.
-8. Не выдумывай данные — используй только то что дано."""
+7. Когда владелец спрашивает про заказы — покажи данные из раздела ПОСЛЕДНИЕ ЗАКАЗЫ выше.
+8. Отвечай кратко и по делу. Ты — рабочий помощник, не клиентский бот.
+9. Не выдумывай данные — используй только то что дано."""
 
 
 def _build_client_prompt(inventory: dict[str, int]) -> str:

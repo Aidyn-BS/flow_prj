@@ -103,10 +103,15 @@ def _build_flower_buttons() -> list[list[InlineKeyboardButton]]:
 
 async def myorders_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    await _show_orders(chat_id, update.message, context)
+
+
+async def _show_orders(chat_id: int, message, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает заказы клиента — используется и командой /myorders и текстом."""
     orders = await get_orders(chat_id)
 
     if not orders:
-        await update.message.reply_text("У вас пока нет заказов 🌸")
+        await message.reply_text("У вас пока нет заказов 🌸")
         return
 
     text = "📋 Ваши заказы:\n\n"
@@ -118,6 +123,7 @@ async def myorders_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date = o.get("pickup_date", "")
         time = o.get("pickup_time", "")
         delivery = "самовывоз" if o.get("delivery_type") == "pickup" else "доставка"
+        address = o.get("delivery_address", "")
 
         text += f"{i}. {status_emoji} {flowers}"
         if qty:
@@ -130,9 +136,12 @@ async def myorders_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if time:
                 text += f" {time}"
             text += "\n"
-        text += f"   {delivery.capitalize()}\n\n"
+        text += f"   {delivery.capitalize()}"
+        if address and delivery == "доставка":
+            text += f": {address}"
+        text += "\n\n"
 
-    await update.message.reply_text(text)
+    await message.reply_text(text)
 
 
 # --- Команда /inventory (только админ) ---
@@ -491,6 +500,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_text = update.message.text
 
+    # «мои заказы» текстом — работает как /myorders
+    if user_text.strip().lower() in ("мои заказы", "мой заказ", "заказы"):
+        await _show_orders(chat_id, update.message, context)
+        return
+
     # Если клиент выбрал цветок кнопкой и теперь пишет число — подставляем название цветка
     selected = context.user_data.get("selected_flower")
     if selected and selected in FLOWERS and user_text.strip().isdigit():
@@ -649,6 +663,7 @@ async def _notify_admin(chat_id: int, order_data: dict | None, context: ContextT
         time = order_data.get("pickup_time", "")
         delivery = order_data.get("delivery_type", "")
         delivery_text = "Самовывоз" if delivery == "pickup" else "Доставка"
+        address = order_data.get("delivery_address", "")
         payment = order_data.get("payment_method", "—")
 
         msg = (
@@ -658,9 +673,11 @@ async def _notify_admin(chat_id: int, order_data: dict | None, context: ContextT
             f"Клиент: {name}\n"
             f"Тел: {phone}\n"
             f"Дата: {date} {time}\n"
-            f"{delivery_text}\n"
-            f"Оплата: {payment}"
+            f"{delivery_text}"
         )
+        if address:
+            msg += f": {address}"
+        msg += f"\nОплата: {payment}"
     else:
         msg = f"🔔 Новый заказ от клиента (chat_id: {chat_id})"
 

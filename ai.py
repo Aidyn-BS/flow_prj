@@ -1,7 +1,7 @@
 import aiohttp
-from config import OPENROUTER_API_KEY, OPENROUTER_MODEL
+from config import OPENROUTER_API_KEY, OPENROUTER_MODEL, ADMIN_CHAT_ID
 from prompts import build_system_prompt
-from database import load_message_history, get_inventory_dict
+from database import load_message_history, get_inventory_dict, get_all_orders
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -41,7 +41,10 @@ async def get_ai_response(chat_id: int, user_message: str) -> str:
 
     # Динамический промпт — разный для админа и клиента, включает текущий inventory
     inventory = await get_inventory_dict()
-    system_prompt = build_system_prompt(chat_id, inventory)
+    orders = None
+    if ADMIN_CHAT_ID and chat_id == ADMIN_CHAT_ID:
+        orders = await get_all_orders(10)
+    system_prompt = build_system_prompt(chat_id, inventory, orders)
 
     messages = [{"role": "system", "content": system_prompt}] + get_history(chat_id)
 
