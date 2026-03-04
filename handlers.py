@@ -3,9 +3,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from ai import get_ai_response
 from catalog import FLOWERS, get_catalog_text, find_flower_key
-from orders import process_order
+from orders import process_order, parse_order_from_ai
 from database import (
-    save_message, get_orders, get_stats,
+    save_message, get_orders, get_all_orders, get_stats,
     get_flower_photos, save_flower_photo, update_inventory, set_inventory,
     get_inventory_dict,
 )
@@ -109,17 +109,30 @@ async def myorders_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("У вас пока нет заказов 🌸")
         return
 
-    text = "📋 *Ваши заказы:*\n\n"
+    text = "📋 Ваши заказы:\n\n"
     for i, o in enumerate(orders[:5], 1):
         status_emoji = "✅" if o["status"] == "confirmed" else "❌"
-        text += (
-            f"{i}. {status_emoji} {o.get('flowers', '—')} × {o.get('quantity', '—')} шт\n"
-            f"   Сумма: {o.get('total_price', '—')} тг\n"
-            f"   Дата: {o.get('pickup_date', '—')} {o.get('pickup_time', '')}\n"
-            f"   Статус: {o['status']}\n\n"
-        )
+        flowers = o.get("flowers", "—")
+        qty = o.get("quantity", 0)
+        total = o.get("total_price", 0)
+        date = o.get("pickup_date", "")
+        time = o.get("pickup_time", "")
+        delivery = "самовывоз" if o.get("delivery_type") == "pickup" else "доставка"
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+        text += f"{i}. {status_emoji} {flowers}"
+        if qty:
+            text += f" x {qty} шт"
+        if total:
+            text += f" — {total:,} тг"
+        text += "\n"
+        if date:
+            text += f"   Дата: {date}"
+            if time:
+                text += f" {time}"
+            text += "\n"
+        text += f"   {delivery.capitalize()}\n\n"
+
+    await update.message.reply_text(text)
 
 
 # --- Команда /inventory (только админ) ---
@@ -142,6 +155,47 @@ async def inventory_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"{emoji} {flower['name']}: {qty} шт\n"
 
     await update.message.reply_text(text, parse_mode="Markdown")
+
+
+# --- Админ: /orders (все заказы) ---
+
+async def orders_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if not _is_admin(chat_id):
+        await update.message.reply_text("⛔ Эта команда доступна только администратору.")
+        return
+
+    orders = await get_all_orders(10)
+    if not orders:
+        await update.message.reply_text("📋 Заказов пока нет.")
+        return
+
+    text = "📋 Все заказы:\n\n"
+    for i, o in enumerate(orders[:10], 1):
+        status_emoji = "✅" if o["status"] == "confirmed" else "❌"
+        flowers = o.get("flowers", "—")
+        qty = o.get("quantity", 0)
+        total = o.get("total_price", 0)
+        name = o.get("customer_name", "")
+        phone = o.get("customer_phone", "")
+        date = o.get("pickup_date", "")
+
+        text += f"{i}. {status_emoji} {flowers}"
+        if qty:
+            text += f" x {qty} шт"
+        if total:
+            text += f" — {total:,} тг"
+        text += "\n"
+        if name:
+            text += f"   Клиент: {name}"
+            if phone:
+                text += f" ({phone})"
+            text += "\n"
+        if date:
+            text += f"   Дата: {date}\n"
+        text += "\n"
+
+    await update.message.reply_text(text)
 
 
 # --- Админ: /stats ---
@@ -454,12 +508,15 @@ async def _process_ai_message(chat_id: int, user_text: str, context: ContextType
     ai_reply = await get_ai_response(chat_id, user_text)
 
     # Проверяем триггеры заказа
+    order_data = None
+    if "ЗАКАЗ_ПОДТВЕРЖДЁН" in ai_reply:
+        order_data = parse_order_from_ai(ai_reply, chat_id)
     cleaned = await process_order(ai_reply, chat_id)
     if cleaned:
         print(f"[ORDER] Заказ обработан для chat_id={chat_id}, is_admin={_is_admin(chat_id)}", flush=True)
         ai_reply = cleaned
         if ADMIN_CHAT_ID and not _is_admin(chat_id):
-            await _notify_admin(chat_id, ai_reply, context)
+            await _notify_admin(chat_id, order_data, context)
         else:
             print(f"[ORDER] Уведомление пропущено: ADMIN_CHAT_ID={ADMIN_CHAT_ID}, is_admin={_is_admin(chat_id)}", flush=True)
 
@@ -576,12 +633,37 @@ def _detect_inline_buttons(ai_reply: str) -> InlineKeyboardMarkup | None:
     return None
 
 
-async def _notify_admin(chat_id: int, order_text: str, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет уведомление владельцу о новом заказе."""
+async def _notify_admin(chat_id: int, order_data: dict | None, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет краткое уведомление владельцу о новом заказе."""
     if not ADMIN_CHAT_ID:
-        print(f"[NOTIFY] ADMIN_CHAT_ID не задан, уведомление не отправлено", flush=True)
+        print(f"[NOTIFY] ADMIN_CHAT_ID не задан", flush=True)
         return
-    msg = f"🔔 Новый заказ!\n\nОт клиента (chat_id: {chat_id}):\n\n{order_text}"
+
+    if order_data:
+        flowers = order_data.get("flowers", "—")
+        qty = order_data.get("quantity", "?")
+        total = order_data.get("total_price", "?")
+        name = order_data.get("customer_name", "—")
+        phone = order_data.get("customer_phone", "—")
+        date = order_data.get("pickup_date", "—")
+        time = order_data.get("pickup_time", "")
+        delivery = order_data.get("delivery_type", "")
+        delivery_text = "Самовывоз" if delivery == "pickup" else "Доставка"
+        payment = order_data.get("payment_method", "—")
+
+        msg = (
+            f"🔔 Новый заказ!\n\n"
+            f"Цветы: {flowers} x {qty} шт\n"
+            f"Сумма: {total} тг\n"
+            f"Клиент: {name}\n"
+            f"Тел: {phone}\n"
+            f"Дата: {date} {time}\n"
+            f"{delivery_text}\n"
+            f"Оплата: {payment}"
+        )
+    else:
+        msg = f"🔔 Новый заказ от клиента (chat_id: {chat_id})"
+
     print(f"[NOTIFY] Отправляю уведомление админу {ADMIN_CHAT_ID}...", flush=True)
     try:
         await context.bot.send_message(ADMIN_CHAT_ID, msg)

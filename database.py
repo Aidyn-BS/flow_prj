@@ -59,6 +59,17 @@ async def get_orders(chat_id: int) -> list:
     return result.data or []
 
 
+async def get_all_orders(limit: int = 10) -> list:
+    result = (
+        supabase.table("orders")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return result.data or []
+
+
 # ==================== MESSAGES ====================
 
 async def save_message(chat_id: int, role: str, content: str):

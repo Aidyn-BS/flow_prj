@@ -46,6 +46,7 @@ try:
         stats_handler,
         admin_handler,
         inventory_handler,
+        orders_handler,
         button_handler,
         photo_handler,
         document_handler,
@@ -98,6 +99,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats_handler))
     app.add_handler(CommandHandler("admin", admin_handler))
     app.add_handler(CommandHandler("inventory", inventory_handler))
+    app.add_handler(CommandHandler("orders", orders_handler))
 
     # Inline-кнопки
     app.add_handler(CallbackQueryHandler(button_handler))
